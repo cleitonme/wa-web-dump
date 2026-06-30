@@ -27,6 +27,19 @@ no contexto da própria página. Um content script normal roda num mundo isolado
    (`noiseKey`, `identityKey`, `signedPreKey`, contagem de app-state). Botões
    **Copiar JSON** e **Baixar de novo** reaproveitam o último dump.
 
+### Limpar o storage após o dump (migração)
+
+Marque **"Limpar storage local após o dump (sem deslogar do servidor)"** para,
+após um dump bem-sucedido, apagar a sessão deste navegador (IndexedDB,
+localStorage, caches, service workers) e recarregar a aba no QR.
+
+Por que isso é diferente de "Sair": o logout normal do WhatsApp avisa o servidor
+e **invalida** as credenciais que você acabou de exportar. Aqui só limpamos o
+storage **local** — o dispositivo continua registrado no servidor, então o dump
+segue válido em outro cliente (ex.: baileys). Útil para *mover* a sessão em vez
+de duplicá-la (o WhatsApp não roda as mesmas credenciais em dois lugares ao
+mesmo tempo). Antes de apagar, aparece um aviso com confirmação.
+
 ### Enviar para uma API REST
 
 Expanda **"Enviar para uma API REST"**, informe o endpoint, um header de auth

@@ -128,6 +128,106 @@ async function runDumpOnTab(triggerDownload) {
   return result
 }
 
+// ── Limpeza do storage (sem deslogar do servidor) ──────────────────────
+
+/**
+ * Roda na pagina (MAIN world). Apaga IndexedDB/localStorage/sessionStorage/
+ * caches/service-workers do origin SEM chamar o logout do WhatsApp — o
+ * dispositivo continua registrado no servidor, entao o dump segue valido
+ * em outro cliente. Um logout normal invalidaria as credenciais.
+ */
+async function clearWaStorage() {
+  const deleted = []
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))])
+  try {
+    let names = []
+    try {
+      if (indexedDB.databases) names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean)
+    } catch {}
+    const known = ['signal-storage', 'wawc_db_enc', 'model-storage', 'wawc-db', 'wam']
+    for (const name of Array.from(new Set(names.concat(known)))) {
+      await withTimeout(
+        new Promise((res) => {
+          const req = indexedDB.deleteDatabase(name)
+          req.onsuccess = () => res()
+          req.onerror = () => res()
+          req.onblocked = () => res()
+        }),
+        1500
+      )
+      deleted.push(name)
+    }
+    try { localStorage.clear() } catch {}
+    try { sessionStorage.clear() } catch {}
+    try {
+      if (self.caches) for (const k of await caches.keys()) await caches.delete(k)
+    } catch {}
+    try {
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations()
+        for (const r of regs) await r.unregister()
+      }
+    } catch {}
+    return { ok: true, deleted }
+  } catch (e) {
+    return { ok: false, error: e && e.message ? e.message : String(e) }
+  }
+}
+
+async function wipeWaStorage() {
+  const tab = await getWaTab()
+  if (!tab) throw new Error('Aba do WhatsApp Web nao encontrada para limpar.')
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'MAIN',
+    func: clearWaStorage
+  })
+  // Recarrega para soltar conexoes abertas do IndexedDB e cair na tela de QR.
+  await chrome.tabs.reload(tab.id)
+  return result
+}
+
+function askWipeConfirm() {
+  return new Promise((resolve) => {
+    const panel = $('wipeConfirm')
+    panel.style.display = 'block'
+    const yes = $('wipeYes')
+    const no = $('wipeNo')
+    const done = (val) => {
+      panel.style.display = 'none'
+      yes.removeEventListener('click', onYes)
+      no.removeEventListener('click', onNo)
+      resolve(val)
+    }
+    const onYes = () => done(true)
+    const onNo = () => done(false)
+    yes.addEventListener('click', onYes)
+    no.addEventListener('click', onNo)
+  })
+}
+
+/** Se a opcao estiver marcada, confirma e limpa o storage. */
+async function maybeWipe() {
+  if (!$('wipeAfter').checked) return
+  const ok = await askWipeConfirm()
+  if (!ok) {
+    setStatus('Limpeza cancelada. Sessao mantida no navegador.')
+    return
+  }
+  setBusy('Limpando storage e recarregando a aba…')
+  const res = await wipeWaStorage()
+  if (res && res.ok === false) {
+    setStatus('Falha ao limpar: ' + res.error, 'err')
+    return
+  }
+  setBadge('offline', 'limpo')
+  setStatus(
+    'Storage local limpo (sem logout no servidor). A aba recarregou no QR; ' +
+      'as credenciais exportadas seguem validas em outro cliente.',
+    'ok'
+  )
+}
+
 // ── Acoes ──────────────────────────────────────────────────────────────
 
 $('open').addEventListener('click', async () => {
@@ -151,6 +251,7 @@ $('dump').addEventListener('click', async () => {
     await doDownload(result.json)
     renderCard(result.summary)
     setStatus('Dump concluido e baixado (wa-web-dump.json).', 'ok')
+    await maybeWipe()
   } catch (e) {
     setStatus('Erro: ' + (e && e.message ? e.message : String(e)), 'err')
   } finally {
@@ -176,11 +277,16 @@ $('redownload').addEventListener('click', async () => {
 
 // ── Envio para API REST ────────────────────────────────────────────────
 
-chrome.storage.local.get(['endpoint', 'authHeader', 'method']).then((cfg) => {
+chrome.storage.local.get(['endpoint', 'authHeader', 'method', 'wipeAfter']).then((cfg) => {
   if (cfg.endpoint) $('endpoint').value = cfg.endpoint
   if (cfg.authHeader) $('authHeader').value = cfg.authHeader
   if (cfg.method) $('method').value = cfg.method
   if (cfg.endpoint) $('apiBox').open = true
+  if (cfg.wipeAfter) $('wipeAfter').checked = true
+})
+
+$('wipeAfter').addEventListener('change', () => {
+  chrome.storage.local.set({ wipeAfter: $('wipeAfter').checked })
 })
 
 function originPattern(urlStr) {
@@ -242,6 +348,7 @@ $('send').addEventListener('click', async () => {
       'Enviado com sucesso (HTTP ' + resp.status + ').' + (text ? '\n\nResposta:\n' + text.slice(0, 300) : ''),
       'ok'
     )
+    await maybeWipe()
   } catch (e) {
     setStatus('Erro no envio: ' + (e && e.message ? e.message : String(e)), 'err')
   } finally {
