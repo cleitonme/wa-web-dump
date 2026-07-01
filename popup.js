@@ -283,6 +283,7 @@ chrome.storage.local.get(['endpoint', 'authHeader', 'method', 'wipeAfter']).then
   if (cfg.method) $('method').value = cfg.method
   if (cfg.endpoint) $('apiBox').open = true
   if (cfg.wipeAfter) $('wipeAfter').checked = true
+  updatePermUi()
 })
 
 $('wipeAfter').addEventListener('change', () => {
@@ -295,6 +296,59 @@ function originPattern(urlStr) {
 }
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function currentPattern() {
+  const ep = $('endpoint').value.trim()
+  if (!ep) return null
+  try {
+    return originPattern(ep)
+  } catch {
+    return null
+  }
+}
+
+/** Mostra se o host do endpoint atual ja esta autorizado e o botao Autorizar. */
+async function updatePermUi() {
+  const pattern = currentPattern()
+  const row = $('permRow')
+  const msg = $('permMsg')
+  const btn = $('authorize')
+  if (!pattern) {
+    row.style.display = 'none'
+    return
+  }
+  row.style.display = 'block'
+  const has = await chrome.permissions.contains({ origins: [pattern] })
+  if (has) {
+    msg.textContent = '✓ host autorizado — envio vai de primeira'
+    msg.className = 'perm-ok'
+    btn.style.display = 'none'
+  } else {
+    msg.textContent = 'Host ainda não autorizado.'
+    msg.className = 'perm-warn'
+    btn.style.display = 'inline-block'
+  }
+}
+
+$('authorize').addEventListener('click', async () => {
+  const pattern = currentPattern()
+  if (!pattern) {
+    setStatus('URL invalida.', 'err')
+    return
+  }
+  const granted = await chrome.permissions.request({ origins: [pattern] })
+  await updatePermUi()
+  setStatus(
+    granted ? 'Host autorizado. Agora os envios vao de primeira.' : 'Permissao negada.',
+    granted ? 'ok' : 'err'
+  )
+})
+
+let permDebounce
+$('endpoint').addEventListener('input', () => {
+  clearTimeout(permDebounce)
+  permDebounce = setTimeout(updatePermUi, 300)
+})
 
 /**
  * POST/PUT com retry. Logo apos conceder a permissao de host pela primeira
@@ -342,6 +396,7 @@ $('send').addEventListener('click', async () => {
   try {
     // Permissao de host em runtime (precisa partir do gesto do usuario).
     const granted = await chrome.permissions.request({ origins: [pattern] })
+    updatePermUi()
     if (!granted) {
       setStatus('Permissao de host negada para ' + pattern, 'err')
       return

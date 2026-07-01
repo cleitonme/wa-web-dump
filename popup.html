@@ -149,6 +149,8 @@
       }
       #status.err { color: var(--err); }
       #status.ok { color: var(--ok); }
+      #permMsg.perm-ok { color: var(--ok); font-weight: 600; }
+      #permMsg.perm-warn { color: var(--warn); }
       .spin {
         display: inline-block; width: 11px; height: 11px;
         border: 2px solid var(--line); border-top-color: var(--green);
@@ -199,6 +201,10 @@
       <summary>Enviar para uma API REST</summary>
       <input id="endpoint" type="url" placeholder="https://sua-api.com/wa/import" />
       <input id="authHeader" type="text" placeholder="Authorization: Bearer xxx (opcional)" />
+      <div id="permRow" style="display:none;font-size:11px;margin-bottom:7px">
+        <span id="permMsg"></span>
+        <button id="authorize" class="ghost" style="margin:5px 0 0">Autorizar host</button>
+      </div>
       <div class="row">
         <select id="method">
           <option>POST</option>

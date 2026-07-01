@@ -50,6 +50,28 @@ para o `fetch` cross-origin; com a permissão concedida o `fetch` ignora CORS).
 O header de auth aceita `Nome: valor` (ex. `Authorization: Bearer xxx` ou
 `X-Api-Key: abc`); se você passar só o valor, vira `Authorization: <valor>`.
 
+**Permissão de host:** ao abrir o popup com um endpoint salvo, aparece o status
+da permissão e, se preciso, um botão **"Autorizar host"**. Autorize uma vez e os
+envios passam a funcionar de primeira. (Se você pular isso, o primeiro envio a um
+host novo pode falhar por causa da propagação da permissão — por isso o envio já
+tem retry automático com backoff como rede de segurança.)
+
+### Testar o envio localmente
+
+Suba o servidor de teste (sem dependências) e aponte o endpoint para ele:
+
+```
+node test-server.js            # http://localhost:3000/wa/import
+PORT=4000 node test-server.js  # porta custom
+```
+
+Ele imprime o resumo do dump recebido e prova que o base64 dos `Buffer`
+decodifica. No seu backend, reconstrua cada campo de bytes com:
+
+```js
+const buf = Buffer.from(obj.data, 'base64') // obj = { type:'Buffer', data:'<base64>' }
+```
+
 ## Observações
 
 - `noiseKey` nulo: o caminho de fallback só funciona antes do primeiro
